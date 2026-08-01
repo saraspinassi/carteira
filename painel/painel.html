@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carteira Brasil e EUA — Sistema de Gestão Patrimonial</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<!-- ============ TELA DE CARREGAMENTO (só aparece se fetch falhar) ============ -->
+<div id="loadGate" class="load-gate" style="display:none;">
+  <div class="load-card">
+    <div class="load-title">Carregar Base de Dados</div>
+    <div class="load-sub">Este dashboard não muda — só os dados. Selecione os 3 arquivos da pasta <code>dados</code>.</div>
+    <div class="load-row">
+      <label>historico.json</label>
+      <input type="file" id="fileHistorico" accept=".json">
+    </div>
+    <div class="load-row">
+      <label>metas.json</label>
+      <input type="file" id="fileMetas" accept=".json">
+    </div>
+    <div class="load-row">
+      <label>configuracoes.json</label>
+      <input type="file" id="fileConfig" accept=".json">
+    </div>
+    <button id="btnCarregar" class="btn-primary" disabled>Carregar Dashboard</button>
+    <div class="load-note">Dica: se você hospedar estes 4 arquivos juntos (mesma pasta, com um servidor local ou GitHub Pages), o dashboard carrega sozinho e esta tela nunca aparece.</div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" style="display:none;">
+<div class="sidebar">
+  <div class="brand">Carteira <span>BR·EUA</span></div>
+  <div class="brand-sub">Gestão Patrimonial</div>
+  <div class="nav-item active" data-view="principal"><span class="nav-icon">◆</span> Dashboard Principal</div>
+  <div class="nav-item" data-view="carteira"><span class="nav-icon">▤</span> Carteira</div>
+  <div class="nav-item" data-view="dividendos"><span class="nav-icon">◈</span> Dividendos</div>
+  <div class="nav-item" data-view="diversificacao"><span class="nav-icon">◍</span> Diversificação</div>
+  <div class="nav-item" data-view="metas"><span class="nav-icon">◎</span> Metas Financeiras</div>
+  <div class="nav-item" data-view="reserva"><span class="nav-icon">▣</span> Reserva de Emergência</div>
+  <div class="nav-item" data-view="projecoes"><span class="nav-icon">↗</span> Projeções</div>
+  <div class="sidebar-foot" id="sidebarFoot">—</div>
+</div>
+
+<div class="main">
+
+  <!-- filtro de período global -->
+  <div class="period-bar">
+    <span class="period-label">Período:</span>
+    <select id="periodType" class="filter-select">
+      <option value="mes">Mês</option>
+      <option value="trimestre">Trimestre</option>
+      <option value="semestre">Semestre</option>
+      <option value="ano" selected>Ano</option>
+      <option value="tudo">Tudo (histórico completo)</option>
+      <option value="custom">Intervalo personalizado</option>
+    </select>
+    <select id="periodValue" class="filter-select"></select>
+    <input type="date" id="customFrom" class="filter-select" style="display:none;">
+    <span id="customToLabel" style="display:none; color:var(--text-dim); font-size:0.8rem;">até</span>
+    <input type="date" id="customTo" class="filter-select" style="display:none;">
+    <span class="period-hint" id="periodHint"></span>
+  </div>
+
+  <!-- ================= DASHBOARD PRINCIPAL ================= -->
+  <div class="view active" id="view-principal">
+    <div class="topbar">
+      <div>
+        <div class="page-title">Painel Executivo</div>
+        <div class="page-sub">Visão consolidada da carteira Brasil e EUA</div>
+      </div>
+      <div class="asof" id="asofBadge">—</div>
+    </div>
+    <div class="grid grid-4" id="cards-principal"></div>
+    <div class="section-title">Evolução <span class="tag">renda passiva, período selecionado</span></div>
+    <div class="panel"><canvas id="chartEvolucaoDiv" height="90"></canvas></div>
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="panel"><div class="panel-title">Composição por Classe</div><canvas id="chartClassePrincipal" height="220"></canvas></div>
+      <div class="panel"><div class="panel-title">Composição por País</div><canvas id="chartPaisPrincipal" height="220"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ================= CARTEIRA ================= -->
+  <div class="view" id="view-carteira">
+    <div class="topbar">
+      <div><div class="page-title">Carteira</div><div class="page-sub">Posição na data selecionada</div></div>
+      <div class="asof" id="fxBadge">—</div>
+    </div>
+    <div class="grid grid-4" id="cards-carteira"></div>
+    <div class="section-title">Tabela Completa <span class="tag">clique no cabeçalho para ordenar</span></div>
+    <div class="panel">
+      <div class="table-toolbar">
+        <input class="search-box" id="tableSearch" placeholder="Buscar ativo...">
+        <select class="filter-select" id="filterClasse">
+          <option value="">Todas as classes</option>
+          <option value="FIIs">FIIs</option>
+          <option value="Ações">Ações</option>
+          <option value="Reits">REITs</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto; max-height:520px; overflow-y:auto;">
+        <table id="mainTable">
+          <thead><tr>
+            <th data-key="ticker">Ativo</th><th data-key="categoria">Classe</th><th data-key="setor">Setor</th>
+            <th data-key="pais">País</th><th data-key="quantidade">Qtd.</th><th data-key="preco_medio">Preço Médio</th>
+            <th data-key="preco_atual">Preço Atual</th><th data-key="valor_mercado_brl">Valor de Mercado</th>
+            <th data-key="pct">% Carteira</th><th data-key="lucro">Lucro/Prej.</th><th data-key="div2026">Dividendos (ano)</th>
+          </tr></thead>
+          <tbody id="mainTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= DIVIDENDOS ================= -->
+  <div class="view" id="view-dividendos">
+    <div class="topbar"><div><div class="page-title">Renda Passiva</div><div class="page-sub">Dividendos, rendimentos e proventos — período selecionado</div></div></div>
+    <div class="grid grid-4" id="cards-dividendos"></div>
+    <div class="section-title">Evolução Mensal</div>
+    <div class="panel"><canvas id="chartDivMensal" height="90"></canvas></div>
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="panel"><div class="panel-title">Dividendos por Ativo</div><canvas id="chartDivAtivo" height="260"></canvas></div>
+      <div class="panel"><div class="panel-title">Dividendos por Setor</div><canvas id="chartDivSetor" height="260"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ================= DIVERSIFICACAO ================= -->
+  <div class="view" id="view-diversificacao">
+    <div class="topbar"><div><div class="page-title">Diversificação</div><div class="page-sub">Concentração e qualidade da distribuição — data selecionada</div></div></div>
+    <div id="alertsDiv"></div>
+    <div class="grid grid-3">
+      <div class="panel"><div class="panel-title">Por Classe de Ativo</div><canvas id="chartClasseFull" height="230"></canvas></div>
+      <div class="panel"><div class="panel-title">Por Setor</div><canvas id="chartSetorFull" height="230"></canvas></div>
+      <div class="panel"><div class="panel-title">Por País / Moeda</div><canvas id="chartPaisFull" height="230"></canvas></div>
+    </div>
+    <div class="section-title">Concentração por Ativo <span class="tag">Top 10 — % da carteira</span></div>
+    <div class="panel"><canvas id="chartTop10" height="110"></canvas></div>
+  </div>
+
+  <!-- ================= METAS ================= -->
+  <div class="view" id="view-metas">
+    <div class="topbar"><div><div class="page-title">Metas Financeiras</div><div class="page-sub">Patrimônio aportado — capital efetivamente investido</div></div></div>
+    <div id="goalsList"></div>
+    <div class="section-title">Meta Planejada × Realizado</div>
+    <div class="panel"><canvas id="chartMetas" height="110"></canvas></div>
+  </div>
+
+  <!-- ================= RESERVA ================= -->
+  <div class="view" id="view-reserva">
+    <div class="topbar"><div><div class="page-title">Reserva de Emergência</div><div class="page-sub">Fundo em EUR — independente dos investimentos</div></div></div>
+    <div class="grid grid-3" id="cards-reserva"></div>
+    <div class="section-title">Evolução Histórica</div>
+    <div class="panel"><canvas id="chartReserva" height="110"></canvas></div>
+    <div class="alert alert-info" id="reservaNote" style="margin-top:16px;"></div>
+  </div>
+
+  <!-- ================= PROJECOES ================= -->
+  <div class="view" id="view-projecoes">
+    <div class="topbar"><div><div class="page-title">Projeções</div><div class="page-sub">Cenário hipotético 2027–2030</div></div></div>
+    <div class="alert alert-warn">
+      ⚠ Cenário hipotético de simulação — não é garantia de resultado futuro. Premissas: aporte de R$2.700/mês
+      a partir de jan/2027, reinvestimento de 100% dos dividendos, Dividend Yield médio de 9% a.a. constante.
+    </div>
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-title">Patrimônio Aportado × Patrimônio Projetado (com reinvestimento)</div>
+      <canvas id="chartProjecao" height="110"></canvas>
+    </div>
+    <div class="grid grid-4" id="cards-projecao" style="margin-top:20px;"></div>
+  </div>
+
+</div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
